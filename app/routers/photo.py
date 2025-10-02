@@ -99,3 +99,4 @@ async def upload_photo(request: PhotoUploadRequest):
             status_code=500, 
             detail=f"Внутренняя ошибка сервера: {str(e)}"
         )
+

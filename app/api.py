@@ -115,7 +115,7 @@ class APIClient:
     def get_poligon(self, object_id: int, token: str = None):
         try:
             response = self.session.get(
-                "https://building-api.itc-hub.ru/api/v1/areas/list",
+                f"https://building-api.itc-hub.ru/api/v1/objects/{object_id}",
                 headers={
                     "Authorization": f"Bearer {token}" if token else "",
                     "Content-Type": "application/json"
@@ -125,16 +125,15 @@ class APIClient:
             
             if response.status_code == 200:
                 data = response.json()
-                areas = data.get("items", [])
+                main_polygon = data.get("main_polygon", {})
                 
-                for area in areas:
-                    if area.get("id") == object_id:
-                        geometry = area.get("geometry", {})
-                        coordinates = geometry.get("coordinates", [])
-                        
-                        if coordinates and len(coordinates) > 0:
-                            polygon_coords = coordinates[0]
-                            return [[coord[1], coord[0]] for coord in polygon_coords]
+                if main_polygon:
+                    geometry = main_polygon.get("geometry", {})
+                    coordinates = geometry.get("coordinates", [])
+                    
+                    if coordinates and len(coordinates) > 0:
+                        polygon_coords = coordinates[0]
+                        return polygon_coords
                 
                 return None
             else:

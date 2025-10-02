@@ -20,29 +20,29 @@ async def send_location(location_data: LocationRequestWithToken):
             message="Полигон не найден"
         )
 
-    latitudes = [p[0] for p in polygon]
-    longitudes = [p[1] for p in polygon]
-    center_lat = sum(latitudes) / len(latitudes)
-    center_lon = sum(longitudes) / len(longitudes)
+    def point_in_polygon(x, y, polygon):
+        inside = False
+        n = len(polygon)
+        p1x, p1y = polygon[0]
+        for i in range(n + 1):
+            p2x, p2y = polygon[i % n]
+            if y > min(p1y, p2y):
+                if y <= max(p1y, p2y):
+                    if x <= max(p1x, p2x):
+                        if p1y != p2y:
+                            xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                        if p1x == p2x or x <= xinters:
+                            inside = not inside
+            p1x, p1y = p2x, p2y
+        return inside
 
-    def haversine(lat1, lon1, lat2, lon2):
-        R = 6371.0
-        phi1 = math.radians(lat1)
-        phi2 = math.radians(lat2)
-        dphi = math.radians(lat2 - lat1)
-        dlambda = math.radians(lon2 - lon1)
-        a = (math.sin(dphi / 2) ** 2 + 
-             math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2)
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        return R * c
-
-    distance_km = haversine(
-        center_lat, 
-        center_lon, 
+    
+    inside = point_in_polygon(
+        location_data.longitude, 
         location_data.latitude, 
-        location_data.longitude
+        polygon
     )
-    inside = distance_km <= 5.0
+    
 
     if inside:
         return LocationResponse(
