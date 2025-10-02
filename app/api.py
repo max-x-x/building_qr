@@ -1,6 +1,8 @@
-import requests
 import logging
 from typing import Dict, Any
+
+import requests
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -74,6 +76,35 @@ class APIClient:
                 return {
                     "status": "error",
                     "message": "Ошибка получения пользователей"
+                }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Ошибка подключения: {str(e)}"
+            }
+
+    def get_user_me(self, token: str) -> Dict[str, Any]:
+        try:
+            response = self.session.get(
+                "https://building-api.itc-hub.ru/api/v1/users/me",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                },
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "status": "success",
+                    "user": data,
+                    "message": "Данные пользователя получены"
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": "Ошибка получения данных пользователя"
                 }
         except Exception as e:
             return {

@@ -1,13 +1,14 @@
+from datetime import datetime, timedelta
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from datetime import datetime, timedelta
 
 from .config import settings, setup_logging
+from .database import create_tables
 from .middleware import LoggingMiddleware, SecurityHeadersMiddleware, RequestIDMiddleware
 from .routers import location, login, photo, sessions
-from .database import create_tables
 
 setup_logging()
 
@@ -127,3 +128,5 @@ async def startup_event():
 async def shutdown_event():
     scheduler.shutdown()
     print("Планировщик остановлен")
+
+

@@ -1,7 +1,9 @@
+import enum
+
 from sqlalchemy import Column, Integer, DateTime, String, Enum
 from sqlalchemy.sql import func
+
 from .database import Base
-import enum
 
 class UserRole(str, enum.Enum):
     FOREMAN = "foreman"
@@ -18,4 +20,5 @@ class Session(Base):
     object_id = Column(Integer, nullable=False, index=True)
 
     def __repr__(self):
-        return f"<Session(id={self.id}, user_id={self.user_id}, role={self.user_role}, date={self.visit_date})>"
+        return (f"<Session(id={self.id}, user_id={self.user_id}, "
+                f"role={self.user_role}, date={self.visit_date})>")

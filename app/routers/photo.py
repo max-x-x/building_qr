@@ -1,26 +1,27 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Optional
 import base64
+from datetime import datetime, date
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app.api import APIClient
+from app.database import get_db
+from app.models import Session as SessionModel
 
 router = APIRouter()
 
 class PhotoUploadRequest(BaseModel):
     token: str
-    role: str
-    uuid: str
-    tag: Optional[str] = None
-    object_id: Optional[int] = None
     photos_base64: list[str]
-    date: str
 
 class PhotoUploadResponse(BaseModel):
     status: str
     message: str
 
 @router.post("/upload", response_model=PhotoUploadResponse)
-async def upload_photo(request: PhotoUploadRequest):
+async def upload_photo(request: PhotoUploadRequest, db: Session = Depends(get_db)):
     try:
         if not request.photos_base64:
             raise HTTPException(status_code=400, detail="Base64 изображения не предоставлены")
@@ -28,41 +29,79 @@ async def upload_photo(request: PhotoUploadRequest):
         if not request.token:
             raise HTTPException(status_code=401, detail="Токен не предоставлен")
         
-        if not request.role:
-            raise HTTPException(status_code=400, detail="Роль не указана")
-        
-        if not request.uuid:
-            raise HTTPException(status_code=400, detail="UUID не указан")
-        
         for photo in request.photos_base64:
             try:
                 base64.b64decode(photo)
             except Exception:
-                raise HTTPException(status_code=400, detail="Неверный формат base64")
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Неверный формат base64"
+                )
         
         api_client = APIClient()
+        user_response = api_client.get_user_me(request.token)
+        
+        if user_response["status"] != "success":
+            raise HTTPException(
+                status_code=401, 
+                detail="Ошибка получения данных пользователя"
+            )
+        
+        user_data = user_response["user"]
+        user_id = user_data.get("id")
+        role = user_data.get("role")
+        
+        if not user_id or not role:
+            raise HTTPException(
+                status_code=400, 
+                detail="Неполные данные пользователя"
+            )
+        
+        today = date.today()
+        start = datetime.combine(today, datetime.min.time())
+        end = start.replace(hour=23, minute=59, second=59)
+        
+        session = db.query(SessionModel).filter(
+            SessionModel.user_id == user_id,
+            SessionModel.visit_date >= start,
+            SessionModel.visit_date <= end
+        ).first()
+        
+        if not session:
+            raise HTTPException(
+                status_code=400, 
+                detail="Нет активной сессии на сегодня"
+            )
+        
+        object_id = session.object_id
+        today_str = today.strftime("%Y-%m-%d")
+        
         photos_data = {
             "photos_base64": request.photos_base64,
-            "date": request.date
+            "date": today_str
         }
         
-        if request.role == "foreman":
-            result = api_client.upload_photos_foreman(request.uuid, photos_data, request.token)
+        if role == "foreman":
+            result = api_client.upload_photos_foreman(user_id, photos_data, request.token)
         else:
-            if not request.tag:
-                raise HTTPException(status_code=400, detail="Тег не указан для роли, отличной от foreman")
-            if not request.object_id:
-                raise HTTPException(status_code=400, detail="ID объекта не указан для роли, отличной от foreman")
+            role_mapping = {
+                "ssk": "ССК",
+                "iko": "ИКО"
+            }
+            tag = role_mapping.get(role, role.upper())
             
             result = api_client.upload_photos_violation(
-                request.tag, 
-                request.object_id, 
-                photos_data, 
+                tag,
+                object_id,
+                photos_data,
                 request.token
             )
         
         if result["status"] == "error":
-            raise HTTPException(status_code=400, detail=result["message"])
+            raise HTTPException(
+                status_code=400, 
+                detail=result["message"]
+            )
         
         return PhotoUploadResponse(
             status="success",
@@ -72,5 +111,8 @@ async def upload_photo(request: PhotoUploadRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Внутренняя ошибка сервера: {str(e)}"
+        )
 
