@@ -1,19 +1,16 @@
 import base64
-from datetime import datetime, date
-from typing import Optional
+from datetime import date
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 from app.api import APIClient
-from app.database import get_db
-from app.models import Session as SessionModel
 
 router = APIRouter()
 
 class PhotoUploadRequest(BaseModel):
     token: str
+    object_id: int
     photos_base64: list[str]
 
 class PhotoUploadResponse(BaseModel):
@@ -21,13 +18,16 @@ class PhotoUploadResponse(BaseModel):
     message: str
 
 @router.post("/upload", response_model=PhotoUploadResponse)
-async def upload_photo(request: PhotoUploadRequest, db: Session = Depends(get_db)):
+async def upload_photo(request: PhotoUploadRequest):
     try:
         if not request.photos_base64:
             raise HTTPException(status_code=400, detail="Base64 изображения не предоставлены")
         
         if not request.token:
             raise HTTPException(status_code=401, detail="Токен не предоставлен")
+        
+        if not request.object_id:
+            raise HTTPException(status_code=400, detail="ID объекта не указан")
         
         for photo in request.photos_base64:
             try:
@@ -58,22 +58,6 @@ async def upload_photo(request: PhotoUploadRequest, db: Session = Depends(get_db
             )
         
         today = date.today()
-        start = datetime.combine(today, datetime.min.time())
-        end = start.replace(hour=23, minute=59, second=59)
-        
-        session = db.query(SessionModel).filter(
-            SessionModel.user_id == user_id,
-            SessionModel.visit_date >= start,
-            SessionModel.visit_date <= end
-        ).first()
-        
-        if not session:
-            raise HTTPException(
-                status_code=400, 
-                detail="Нет активной сессии на сегодня"
-            )
-        
-        object_id = session.object_id
         today_str = today.strftime("%Y-%m-%d")
         
         photos_data = {
@@ -92,7 +76,7 @@ async def upload_photo(request: PhotoUploadRequest, db: Session = Depends(get_db
             
             result = api_client.upload_photos_violation(
                 tag,
-                object_id,
+                request.object_id,
                 photos_data,
                 request.token
             )
@@ -115,4 +99,3 @@ async def upload_photo(request: PhotoUploadRequest, db: Session = Depends(get_db
             status_code=500, 
             detail=f"Внутренняя ошибка сервера: {str(e)}"
         )
-
