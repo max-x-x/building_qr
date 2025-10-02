@@ -5,10 +5,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-
 class APIClient:
-    """Клиент для работы с API"""
-
     def __init__(self, base_url: str = None):
         self.base_url = base_url or settings.API_BASE_URL
         self.session = requests.Session()
@@ -27,12 +24,11 @@ class APIClient:
                 user_data = data.get("user", {})
                 role = user_data.get("role", "")
                 
-                # Маппинг ролей с внешнего API на внутренние
                 role_mapping = {
-                    "foreman": "1",  # PRORAB
-                    "ssk": "2",      # SSK
-                    "iko": "3",      # IKO
-                    "admin": "1"     # Админ как прораб
+                    "foreman": "1",
+                    "ssk": "2",
+                    "iko": "3",
+                    "admin": "1"
                 }
                 
                 return {
@@ -40,7 +36,7 @@ class APIClient:
                     "access": True,
                     "token": data.get("access"),
                     "user_id": user_data.get("id"),
-                    "role": role,  # Возвращаем оригинальное название роли
+                    "role": role,
                     "message": "Вход выполнен успешно"
                 }
             else:
@@ -86,12 +82,6 @@ class APIClient:
             }
 
     def get_poligon(self, object_id: int, token: str = None):
-        """
-        принимает айди объенкта отдает полигон объекта
-        :param object_id:
-        :param token:
-        :return:
-        """
         try:
             response = self.session.get(
                 "https://building-api.itc-hub.ru/api/v1/areas/list",
@@ -106,16 +96,13 @@ class APIClient:
                 data = response.json()
                 areas = data.get("items", [])
                 
-                # Ищем полигон с нужным id (object_id соответствует id полигона)
                 for area in areas:
                     if area.get("id") == object_id:
                         geometry = area.get("geometry", {})
                         coordinates = geometry.get("coordinates", [])
                         
                         if coordinates and len(coordinates) > 0:
-                            # Извлекаем координаты полигона
-                            polygon_coords = coordinates[0]  # Первый массив координат
-                            # Конвертируем из [longitude, latitude] в [latitude, longitude]
+                            polygon_coords = coordinates[0]
                             return [[coord[1], coord[0]] for coord in polygon_coords]
                 
                 return None
@@ -124,3 +111,66 @@ class APIClient:
         except Exception as e:
             print(f"Ошибка получения полигона: {e}")
             return None
+
+    def upload_photos_foreman(self, foreman_id: str, photos_data: dict, token: str) -> Dict[str, Any]:
+        try:
+            response = self.session.post(
+                f"https://building-s3-api.itc-hub.ru/upload/foreman/visit/{foreman_id}",
+                json=photos_data,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                },
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                return {
+                    "status": "success",
+                    "message": "Фото успешно загружены для прораба"
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": f"Ошибка загрузки фото: {response.status_code}"
+                }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Ошибка подключения: {str(e)}"
+            }
+
+    def upload_photos_violation(self, tag: str, entity_id: int, photos_data: dict, token: str) -> Dict[str, Any]:
+        role_mapping = {
+            "ssk": "ССК",
+            "iko": "ИКО"
+        }
+        
+        russian_tag = role_mapping.get(tag.lower(), tag)
+        
+        try:
+            response = self.session.post(
+                f"https://building-s3-api.itc-hub.ru/upload/violation/{russian_tag}/{entity_id}/creation",
+                json=photos_data,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                },
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                return {
+                    "status": "success",
+                    "message": f"Фото успешно загружены для {tag}"
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": f"Ошибка загрузки фото: {response.status_code}"
+                }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Ошибка подключения: {str(e)}"
+            }

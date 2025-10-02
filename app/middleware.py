@@ -12,7 +12,6 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         start_time = time.time()
         
-        # Логируем входящий запрос
         client_ip = request.client.host if request.client else "unknown"
         user_agent = request.headers.get("user-agent", "unknown")
         
@@ -21,12 +20,12 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             f"от {client_ip} (User-Agent: {user_agent})"
         )
         
-        # Обрабатываем запрос
+
         try:
             response = await call_next(request)
             process_time = time.time() - start_time
             
-            # Логируем успешный ответ
+    
             logger.info(
                 f"Ответ: {request.method} {request.url.path} -> "
                 f"{response.status_code} [{process_time:.3f}s]"
@@ -37,7 +36,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             process_time = time.time() - start_time
             
-            # Логируем ошибку
+
             logger.error(
                 f"Ошибка в запросе: {request.method} {request.url.path} -> "
                 f"Exception: {str(e)} [{process_time:.3f}s]",
@@ -52,7 +51,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         response = await call_next(request)
         
-        # Добавляем заголовки безопасности
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
@@ -66,11 +64,11 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         import uuid
         request_id = str(uuid.uuid4())
         
-        # Добавляем request_id в заголовки ответа
+    
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         
-        # Логируем с request_id
+
         logger.info(f"Request ID: {request_id} - {request.method} {request.url.path}")
         
         return response
@@ -79,7 +77,6 @@ class CORSMiddleware(BaseHTTPMiddleware):
     """Middleware для обработки CORS запросов"""
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Обрабатываем OPTIONS запросы
         if request.method == "OPTIONS":
             response = Response(status_code=200)
             response.headers["Access-Control-Allow-Origin"] = "*"
@@ -90,7 +87,6 @@ class CORSMiddleware(BaseHTTPMiddleware):
         
         response = await call_next(request)
         
-        # Добавляем CORS заголовки к ответу
         response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Credentials"] = "true"
         

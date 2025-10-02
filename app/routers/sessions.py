@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from ..database import get_db
 from ..models import Session as SessionModel, UserRole
 
@@ -11,7 +11,7 @@ class SessionCreateRequest(BaseModel):
     user_id: str
     user_role: str
     object_id: int
-    visit_date: str = None  # Дата в формате ISO (YYYY-MM-DD)
+    visit_date: str = None
 
 class SessionCreateResponse(BaseModel):
     status: str
@@ -23,11 +23,7 @@ async def create_session(
     session_data: SessionCreateRequest,
     db: Session = Depends(get_db)
 ):
-    """
-    Создание новой записи посещения
-    """
     try:
-        # Валидация роли
         try:
             role_enum = UserRole(session_data.user_role)
         except ValueError:
@@ -36,7 +32,6 @@ async def create_session(
                 detail=f"Неверная роль. Доступные роли: {[role.value for role in UserRole]}"
             )
         
-        # Обработка даты
         if session_data.visit_date:
             try:
                 visit_date = datetime.fromisoformat(session_data.visit_date)
@@ -48,7 +43,6 @@ async def create_session(
         else:
             visit_date = datetime.now()
         
-        # Создание новой записи
         new_session = SessionModel(
             user_id=session_data.user_id,
             user_role=role_enum,
@@ -78,9 +72,6 @@ async def list_sessions(
     object_id: int = None,
     db: Session = Depends(get_db)
 ):
-    """
-    Получение списка посещений с фильтрацией
-    """
     try:
         query = db.query(SessionModel)
         
@@ -114,18 +105,11 @@ async def get_planned_visits(
     object_id: int,
     db: Session = Depends(get_db)
 ):
-    """
-    Получение списка всех запланированных посещений на объект
-    """
     try:
-        from datetime import datetime, date
-        
-        # Получаем все посещения на указанный объект
         sessions = db.query(SessionModel).filter(
             SessionModel.object_id == object_id
         ).order_by(SessionModel.visit_date.asc()).all()
         
-        # Группируем посещения по дате
         visits_by_date = {}
         for session in sessions:
             visit_date = session.visit_date.date()
@@ -140,7 +124,6 @@ async def get_planned_visits(
                 "visit_datetime": session.visit_date.isoformat()
             })
         
-        # Формируем результат
         planned_visits = []
         for visit_date, visits in visits_by_date.items():
             planned_visits.append({
@@ -162,21 +145,15 @@ async def get_planned_visits(
 
 @router.post("/auto-create")
 async def auto_create_sessions(db: Session = Depends(get_db)):
-    """
-    Автоматическое создание посещений для всех прорабов на завтра
-    """
     try:
         from ..api import APIClient
-        from datetime import datetime, timedelta
         
-        # Логинимся как админ через нашу ручку логина
         api_client = APIClient()
         admin_response = api_client.login("admin@gmail.com", "111")
         
         if not admin_response.get("access"):
-            # Если админ не может войти, создаем запись для него
             admin_session = SessionModel(
-                user_id="96a96730-2116-4425-add5-e9f2a3f302d1",  # ID админа
+                user_id="96a96730-2116-4425-add5-e9f2a3f302d1",
                 user_role=UserRole.FOREMAN,
                 object_id=1,
                 visit_date=datetime.now()
@@ -184,30 +161,19 @@ async def auto_create_sessions(db: Session = Depends(get_db)):
             db.add(admin_session)
             db.commit()
             
-            # Повторно пытаемся войти
             admin_response = api_client.login("admin@gmail.com", "111")
             
             if not admin_response.get("access"):
                 raise HTTPException(status_code=401, detail="Ошибка авторизации админа")
         
         token = admin_response.get("token")
-        
-        # Получаем список пользователей
         users_response = api_client.get_users(token)
         
         if users_response.get("status") != "success":
             raise HTTPException(status_code=500, detail="Ошибка получения пользователей")
         
         users = users_response.get("users", [])
-        
-        print(f"Получено пользователей: {len(users)}")
-        print(f"Пользователи: {users}")
-        
-        # Фильтруем только прорабов
         foremen = [user for user in users if user.get("role") == "foreman"]
-        
-        print(f"Найдено прорабов: {len(foremen)}")
-        print(f"Прорабы: {foremen}")
         
         if not foremen:
             return {
@@ -216,18 +182,15 @@ async def auto_create_sessions(db: Session = Depends(get_db)):
                 "created_sessions": 0
             }
         
-        # Дата на завтра
         tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-        
         created_sessions = 0
         
-        # Создаем посещения для каждого прораба
         for foreman in foremen:
             try:
                 new_session = SessionModel(
                     user_id=foreman.get("id"),
                     user_role=UserRole.FOREMAN,
-                    object_id=1,  # Дефолтный объект
+                    object_id=1,
                     visit_date=datetime.fromisoformat(tomorrow)
                 )
                 

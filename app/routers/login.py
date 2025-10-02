@@ -17,15 +17,6 @@ class LoginResponse(BaseModel):
 
 @router.post("/login", response_model=LoginResponse)
 async def login_user(login_data: LoginRequest, db: Session = Depends(get_db)):
-    """
-    Авторизация пользователя
-    
-    POST /auth/login
-    Назначение: войти в систему под своей ролью (прораб, ССК, ИКО, админ/сисадмин).
-    Когда: первый вход, смена устройства, после истечения токена.
-    Кто: любой пользователь.
-    Важно: без валидной сессии не откроются карточки объектов, чат и рабочие процессы
-    """
     
     api_client = APIClient()
     api_response = api_client.login(login_data.email, login_data.password)

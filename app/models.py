@@ -17,6 +17,5 @@ class Session(Base):
     user_role = Column(Enum(UserRole), nullable=False, default=UserRole.FOREMAN)
     object_id = Column(Integer, nullable=False, index=True)
 
-    
     def __repr__(self):
         return f"<Session(id={self.id}, user_id={self.user_id}, role={self.user_role}, date={self.visit_date})>"
