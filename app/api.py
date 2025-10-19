@@ -114,7 +114,7 @@ class APIClient:
 
     def get_poligon(self, object_id: int, token: str = None):
         try:
-            response = self.session.get(
+            response = requests.get(
                 f"https://building-api.itc-hub.ru/api/v1/objects/{object_id}",
                 headers={
                     "Authorization": f"Bearer {token}" if token else "",
