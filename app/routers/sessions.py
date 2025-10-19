@@ -11,6 +11,8 @@ class SessionCreateRequest(BaseModel):
     user_id: str
     user_role: str
     object_id: int
+    area_id: int = None
+    area_name: str = None
     visit_date: str = None
 
 class SessionCreateResponse(BaseModel):
@@ -43,10 +45,29 @@ async def create_session(
         else:
             visit_date = datetime.now()
         
+        # Получаем название подполигона через API
+        area_name = None
+        if session_data.object_id and session_data.area_id:
+            from ..api import APIClient
+            api_client = APIClient()
+            admin_response = api_client.login("admin@gmail.com", "111")
+            
+            if admin_response.get("access"):
+                token = admin_response.get("token")
+                object_details = api_client.get_object_details(session_data.object_id, token)
+                if object_details.get("status") == "success":
+                    areas = object_details.get("object", {}).get("areas", [])
+                    for area in areas:
+                        if area.get("id") == session_data.area_id:
+                            area_name = area.get("name")
+                            break
+        
         new_session = SessionModel(
             user_id=session_data.user_id,
             user_role=role_enum,
             object_id=session_data.object_id,
+            area_id=session_data.area_id,
+            area_name=area_name,
             visit_date=visit_date
         )
         
@@ -90,6 +111,8 @@ async def list_sessions(
                     "user_id": session.user_id,
                     "user_role": session.user_role.value,
                     "object_id": session.object_id,
+                    "area_id": session.area_id,
+                    "area_name": session.area_name,
                     "visit_date": session.visit_date.isoformat()
                 }
                 for session in sessions
@@ -106,8 +129,10 @@ async def get_planned_visits(
     db: Session = Depends(get_db)
 ):
     try:
+        today = date.today()
         sessions = db.query(SessionModel).filter(
-            SessionModel.object_id == object_id
+            SessionModel.object_id == object_id,
+            SessionModel.visit_date >= today
         ).order_by(SessionModel.visit_date.asc()).all()
         
         visits_by_date = {}
@@ -120,6 +145,8 @@ async def get_planned_visits(
                 "id": session.id,
                 "user_id": session.user_id,
                 "user_role": session.user_role.value,
+                "area_id": session.area_id,
+                "area_name": session.area_name,
                 "visit_time": session.visit_date.time().isoformat(),
                 "visit_datetime": session.visit_date.isoformat()
             })
@@ -167,38 +194,63 @@ async def auto_create_sessions(db: Session = Depends(get_db)):
                 raise HTTPException(status_code=401, detail="Ошибка авторизации админа")
         
         token = admin_response.get("token")
-        users_response = api_client.get_users(token)
+        objects_response = api_client.get_objects(token)
         
-        if users_response.get("status") != "success":
-            raise HTTPException(status_code=500, detail="Ошибка получения пользователей")
+        if objects_response.get("status") != "success":
+            raise HTTPException(status_code=500, detail="Ошибка получения объектов")
         
-        users = users_response.get("users", [])
-        foremen = [user for user in users if user.get("role") == "foreman"]
+        objects = objects_response.get("objects", [])
+        active_objects = [obj for obj in objects if obj.get("status") == "active" and obj.get("foreman")]
         
-        if not foremen:
+        if not active_objects:
             return {
                 "status": "success",
-                "message": "Прорабы не найдены",
+                "message": "Активные объекты с прорабами не найдены",
                 "created_sessions": 0
             }
         
         tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         created_sessions = 0
         
-        for foreman in foremen:
+        for obj in active_objects:
             try:
-                new_session = SessionModel(
-                    user_id=foreman.get("id"),
-                    user_role=UserRole.FOREMAN,
-                    object_id=1,
-                    visit_date=datetime.fromisoformat(tomorrow)
-                )
+                foreman = obj.get("foreman")
+                if not foreman:
+                    continue
                 
-                db.add(new_session)
-                created_sessions += 1
+                areas = obj.get("areas", [])
+                print(f"Объект {obj.get('id')}: найдено {len(areas)} полигонов")
+                if not areas:
+                    # Если нет полигонов, создаем посещение только на объект
+                    print(f"Создаем посещение для объекта {obj.get('id')} без полигона")
+                    new_session = SessionModel(
+                        user_id=foreman.get("id"),
+                        user_role=UserRole.FOREMAN,
+                        object_id=obj.get("id"),
+                        area_id=None,
+                        area_name=None,
+                        visit_date=datetime.fromisoformat(tomorrow)
+                    )
+                    db.add(new_session)
+                    created_sessions += 1
+                else:
+                    # Создаем посещение для каждого полигона
+                    print(f"Создаем посещения для объекта {obj.get('id')} с {len(areas)} полигонами")
+                    for area in areas:
+                        print(f"  - Полигон ID: {area.get('id')}")
+                        new_session = SessionModel(
+                            user_id=foreman.get("id"),
+                            user_role=UserRole.FOREMAN,
+                            object_id=obj.get("id"),
+                            area_id=area.get("id"),
+                            area_name=area.get("name"),
+                            visit_date=datetime.fromisoformat(tomorrow)
+                        )
+                        db.add(new_session)
+                        created_sessions += 1
                 
             except Exception as e:
-                print(f"Ошибка создания сессии для {foreman.get('id')}: {e}")
+                print(f"Ошибка создания сессии для объекта {obj.get('id')}: {e}")
                 continue
         
         db.commit()
@@ -207,7 +259,7 @@ async def auto_create_sessions(db: Session = Depends(get_db)):
             "status": "success",
             "message": f"Создано {created_sessions} посещений на {tomorrow}",
             "created_sessions": created_sessions,
-            "foremen_count": len(foremen)
+            "active_objects_count": len(active_objects)
         }
         
     except HTTPException:

@@ -170,6 +170,64 @@ class APIClient:
                 "message": f"Ошибка подключения: {str(e)}"
             }
 
+    def get_objects(self, token: str) -> Dict[str, Any]:
+        try:
+            response = self.session.get(
+                "https://building-api.itc-hub.ru/api/v1/objects",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                },
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "status": "success",
+                    "objects": data.get("items", []),
+                    "message": "Объекты получены"
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": "Ошибка получения объектов"
+                }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Ошибка подключения: {str(e)}"
+            }
+
+    def get_object_details(self, object_id: int, token: str) -> Dict[str, Any]:
+        try:
+            response = self.session.get(
+                f"https://building-api.itc-hub.ru/api/v1/objects/{object_id}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                },
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "status": "success",
+                    "object": data,
+                    "message": "Детали объекта получены"
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": "Ошибка получения деталей объекта"
+                }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Ошибка подключения: {str(e)}"
+            }
+
     def upload_photos_violation(self, tag: str, entity_id: int, photos_data: dict, token: str) -> Dict[str, Any]:
         role_mapping = {
             "ssk": "ССК",

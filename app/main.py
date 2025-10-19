@@ -8,7 +8,7 @@ from apscheduler.triggers.cron import CronTrigger
 from .config import settings, setup_logging
 from .database import create_tables
 from .middleware import LoggingMiddleware, SecurityHeadersMiddleware, RequestIDMiddleware
-from .routers import location, login, photo, sessions
+from .routers import location, login, photo, sessions, session_history
 
 setup_logging()
 
@@ -33,6 +33,7 @@ async def auto_create_daily_sessions():
                     user_id="96a96730-2116-4425-add5-e9f2a3f302d1",
                     user_role=UserRole.FOREMAN,
                     object_id=1,
+                    area_name=None,
                     visit_date=datetime.now()
                 )
                 db.add(admin_session)
@@ -45,40 +46,74 @@ async def auto_create_daily_sessions():
                     return
             
             token = admin_response.get("token")
-            users_response = api_client.get_users(token)
+            objects_response = api_client.get_objects(token)
             
-            if users_response.get("status") != "success":
-                print("Ошибка получения пользователей")
+            if objects_response.get("status") != "success":
+                print("Ошибка получения объектов")
                 return
             
-            users = users_response.get("users", [])
-            foremen = [user for user in users if user.get("role") == "foreman"]
+            objects = objects_response.get("objects", [])
+            active_objects = [obj for obj in objects if obj.get("status") == "active" and obj.get("foreman")]
             
-            if not foremen:
-                print("Прорабы не найдены для автоматического создания")
+            if not active_objects:
+                print("Активные объекты с прорабами не найдены")
                 return
             
             tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
             created_sessions = 0
             
-            for foreman in foremen:
+            for obj in active_objects:
                 try:
-                    new_session = SessionModel(
-                        user_id=foreman.get("id"),
-                        user_role=UserRole.FOREMAN,
-                        object_id=1,
-                        visit_date=datetime.fromisoformat(tomorrow)
-                    )
+                    foreman = obj.get("foreman")
+                    if not foreman:
+                        continue
                     
-                    db.add(new_session)
-                    created_sessions += 1
+                    # Получаем детали объекта для получения полной информации о подполигонах
+                    print(f"Получаем детали объекта {obj.get('id')}")
+                    object_details = api_client.get_object_details(obj.get("id"), token)
+                    if object_details.get("status") != "success":
+                        print(f"Ошибка получения деталей объекта {obj.get('id')}: {object_details}")
+                        continue
+                        
+                    obj_with_details = object_details.get("object", {})
+                    areas = obj_with_details.get("areas", [])
+                    print(f"Получены детали объекта {obj.get('id')}: {len(areas)} подполигонов")
+                    print(f"Объект {obj.get('id')}: найдено {len(areas)} полигонов")
+                    if not areas:
+                        # Если нет полигонов, создаем посещение только на объект
+                        print(f"Создаем посещение для объекта {obj.get('id')} без полигона")
+                        new_session = SessionModel(
+                            user_id=foreman.get("id"),
+                            user_role=UserRole.FOREMAN,
+                            object_id=obj.get("id"),
+                            area_id=None,
+                            area_name=None,
+                            visit_date=datetime.fromisoformat(tomorrow)
+                        )
+                        db.add(new_session)
+                        created_sessions += 1
+                    else:
+                        # Создаем посещение для каждого полигона
+                        print(f"Создаем посещения для объекта {obj.get('id')} с {len(areas)} полигонами")
+                        for area in areas:
+                            print(f"  - Полигон ID: {area.get('id')}")
+                            new_session = SessionModel(
+                                user_id=foreman.get("id"),
+                                user_role=UserRole.FOREMAN,
+                                object_id=obj.get("id"),
+                                area_id=area.get("id"),
+                                area_name=area.get("name"),
+                                visit_date=datetime.fromisoformat(tomorrow)
+                            )
+                            db.add(new_session)
+                            created_sessions += 1
                     
                 except Exception as e:
-                    print(f"Ошибка создания сессии для {foreman.get('id')}: {e}")
+                    print(f"Ошибка создания сессии для объекта {obj.get('id')}: {e}")
                     continue
             
             db.commit()
-            print(f"Автоматически создано {created_sessions} посещений на {tomorrow}")
+            print(f"Автоматически создано {created_sessions} посещений на {tomorrow} для {len(active_objects)} объектов")
             
         finally:
             db.close()
@@ -109,6 +144,7 @@ app.include_router(login.router, prefix=f"{api_prefix}/login", tags=["auth"])
 app.include_router(location.router, prefix=f"{api_prefix}/location", tags=["location"])
 app.include_router(photo.router, prefix=f"{api_prefix}/photo", tags=["photo"])
 app.include_router(sessions.router, prefix=f"{api_prefix}/sessions", tags=["sessions"])
+app.include_router(session_history.router, prefix=f"{api_prefix}/session-history", tags=["session-history"])
 
 @app.get("/ping")
 async def ping():
